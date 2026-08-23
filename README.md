@@ -1,0 +1,81 @@
+# NetSage AI
+
+AI-assisted troubleshooting assistant for Cisco Packet Tracer labs with a strict Human-in-the-Loop (HITL) review architecture.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + Vite + Tailwind CSS v4 (TypeScript) |
+| Backend | Python 3.11 + FastAPI + Uvicorn |
+| AI Engine | Google Gemini (`gemini-2.5-flash`) via `google-generativeai` |
+| Database | PostgreSQL 16 (Docker) |
+
+## Project Structure
+
+```
+netsageAI/
+├── frontend/          React + Vite frontend
+├── backend/           FastAPI backend
+├── data/
+│   └── cases.csv      Lab case definitions (source of truth)
+├── docker-compose.yml Orchestrates backend + PostgreSQL
+└── README.md
+```
+
+## Getting Started & Teammate Setup
+
+If you are setting this repository up for the first time or onboarding a partner, follow these steps:
+
+### 1. Initialize Git (First-time setup only)
+Run these commands in the root directory (`netsageAI/`) to track your workspace:
+```bash
+git init
+git add .
+git commit -m "feat: complete module 1 frontend cleanup & scaffolding"
+```
+
+### 2. Frontend Setup
+Navigate to the frontend folder, install dependencies, and start the development server:
+```bash
+cd frontend
+npm install
+npm run dev              # Runs on http://localhost:3000
+```
+
+### 3. Backend Setup
+Navigate to the backend folder, configure environments, and install dependencies:
+```bash
+cd ../backend
+
+# Copy the env template configuration file
+cp .env.example .env     # Update GEMINI_API_KEY inside the new .env file
+
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On macOS/Linux
+# or: .\venv\Scripts\Activate.ps1 on Windows Powershell
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+### 4. Running the Dev Servers
+Once configured, you can start the backend service:
+```bash
+uvicorn main:app --reload --port 8000
+```
+For local docker orchestration (containing Postgres database setup):
+```bash
+docker compose up --build
+```
+
+## Architecture
+
+The system implements a dual-processing pipeline:
+
+1. **Deterministic Rule Checker** — regex/string matching on raw CLI logs to detect known faults (interface down, duplicate IP, subnet mismatch, VLAN issues, missing routes).
+2. **LLM Inference** — Gemini `gemini-2.5-flash` with structured JSON output enforcing the `DiagnosticTurn` schema.
+3. **Agreement Engine** — compares rule flags against LLM output and sets `agreement_status`.
+4. **Confidence Threshold** — `confidence < 0.75` triggers a multi-turn loop (user runs `next_command` and resubmits CLI output); `confidence >= 0.75` generates `fix_steps` for HITL review.
+5. **HITL Review** — Accept / Edit / Reject with full audit logging to PostgreSQL.
