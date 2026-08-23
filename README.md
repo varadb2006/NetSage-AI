@@ -25,17 +25,7 @@ netsageAI/
 
 ## Getting Started & Teammate Setup
 
-If you are setting this repository up for the first time or onboarding a partner, follow these steps:
-
-### 1. Initialize Git (First-time setup only)
-Run these commands in the root directory (`netsageAI/`) to track your workspace:
-```bash
-git init
-git add .
-git commit -m "feat: complete module 1 frontend cleanup & scaffolding"
-```
-
-### 2. Frontend Setup
+### 1. Frontend Setup
 Navigate to the frontend folder, install dependencies, and start the development server:
 ```bash
 cd frontend
@@ -43,7 +33,7 @@ npm install
 npm run dev              # Runs on http://localhost:3000
 ```
 
-### 3. Backend Setup
+### 2. Backend Setup
 Navigate to the backend folder, configure environments, and install dependencies:
 ```bash
 cd ../backend
@@ -60,7 +50,7 @@ source venv/bin/activate  # On macOS/Linux
 pip install -r requirements.txt
 ```
 
-### 4. Running the Dev Servers
+### 3. Running the Dev Servers
 Once configured, you can start the backend service:
 ```bash
 uvicorn main:app --reload --port 8000
