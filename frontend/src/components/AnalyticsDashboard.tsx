@@ -4,17 +4,12 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, Tooltip
 } from 'recharts';
-import {
-  KPI_METRICS,
-  ISSUE_DISTRIBUTION_DATA,
-  CALIBRATION_CURVE_DATA,
-  AGREEMENT_PROGRESS_DATA,
-  INITIAL_REVIEW_LOGS
-} from '../data/mockCases';
 import { FailureLogEntry } from '../types';
+import { DashboardMetrics } from '../services/api';
 
 interface AnalyticsDashboardProps {
   failureLogs: FailureLogEntry[];
+  metrics: DashboardMetrics | null;
   onSelectFailureLog: (entry: FailureLogEntry) => void;
   onAddToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, message?: string) => void;
 }
@@ -23,8 +18,8 @@ const KPI_CARD_CONFIGS = [
   {
     key: 'total',
     label: 'Total Cases Analyzed',
-    value: KPI_METRICS.totalCasesAnalyzed,
-    sub: KPI_METRICS.totalCasesGrowth,
+    value: '0',
+    sub: 'Backend data loading',
     subColor: 'text-[#4edea3]',
     subBg: 'bg-[#00a572]/15',
     icon: BarChart3,
@@ -35,7 +30,7 @@ const KPI_CARD_CONFIGS = [
   {
     key: 'agreement',
     label: 'AI Diagnostic Accuracy',
-    value: KPI_METRICS.agreementRate,
+    value: '0%',
     sub: 'Rule + LLM consensus',
     subColor: 'text-[#68d6ff]',
     subBg: 'bg-[#00bceb]/10',
@@ -47,8 +42,8 @@ const KPI_CARD_CONFIGS = [
   {
     key: 'turns',
     label: 'Avg Turns to Resolution',
-    value: KPI_METRICS.avgTurns,
-    sub: KPI_METRICS.avgTurnsChange,
+    value: '0',
+    sub: 'Backend data loading',
     subColor: 'text-[#4edea3]',
     subBg: 'bg-[#00a572]/10',
     icon: TrendingUp,
@@ -59,7 +54,7 @@ const KPI_CARD_CONFIGS = [
   {
     key: 'overrides',
     label: 'Human Overrides / Rejections',
-    value: KPI_METRICS.totalOverrides,
+    value: '0',
     sub: 'Logged to failure audit',
     subColor: 'text-[#ffb4ab]',
     subBg: 'bg-[#93000a]/15',
@@ -70,21 +65,36 @@ const KPI_CARD_CONFIGS = [
   },
 ];
 
-function deriveReviewStats() {
-  const total = INITIAL_REVIEW_LOGS.length;
-  const accepted = INITIAL_REVIEW_LOGS.filter((r) => r.outcome === 'ACCEPTED').length;
-  const overridden = INITIAL_REVIEW_LOGS.filter((r) => r.outcome === 'OVERRIDDEN').length;
-  const rejected = INITIAL_REVIEW_LOGS.filter((r) => r.outcome === 'REJECTED').length;
+function deriveReviewStats(metrics: DashboardMetrics | null) {
+  const logs = metrics?.review_log ?? [];
+  const total = logs.length;
+  const accepted = logs.filter((r) => r.outcome === 'ACCEPTED').length;
+  const overridden = logs.filter((r) => r.outcome === 'OVERRIDDEN').length;
+  const rejected = logs.filter((r) => r.outcome === 'REJECTED').length;
   return { total, accepted, overridden, rejected };
 }
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   failureLogs,
+  metrics,
   onSelectFailureLog,
   onAddToast
 }) => {
   const [filterReason, setFilterReason] = useState<string>('ALL');
-  const stats = deriveReviewStats();
+  const stats = deriveReviewStats(metrics);
+  const issueDistribution = metrics?.issue_distribution ?? [];
+  const calibrationCurve = (metrics?.calibration_curve ?? []).map((item) => ({
+    confidence: item.confidence * 100,
+    modelAccuracy: item.model_accuracy * 100,
+    ideal: item.ideal * 100,
+  }));
+  const agreementProgress = metrics?.agreement_progress ?? [];
+  const kpiValues = [
+    `${metrics?.total_cases ?? 0}`,
+    `${Math.round((metrics?.agreement_rate ?? 0) * 100)}%`,
+    `${metrics?.avg_turns_to_resolution ?? 0}`,
+    `${metrics?.total_overrides ?? 0}`,
+  ];
 
   const filteredLogs = failureLogs.filter(
     (log) => filterReason === 'ALL' || log.failure_reason === filterReason
@@ -131,7 +141,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {KPI_CARD_CONFIGS.map((kpi) => {
+        {KPI_CARD_CONFIGS.map((kpi, index) => {
           const Icon = kpi.icon;
           return (
             <div
@@ -147,7 +157,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 </div>
               </div>
               <div>
-                <span className="text-3xl font-bold text-[#dfe2f1] tracking-tight">{kpi.value}</span>
+                <span className="text-3xl font-bold text-[#dfe2f1] tracking-tight">{kpiValues[index]}</span>
                 <div className="flex items-center justify-between mt-2">
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${kpi.subBg} ${kpi.subColor} font-bold`}>
                     {kpi.sub}
@@ -206,8 +216,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <div className="w-44 h-44 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={ISSUE_DISTRIBUTION_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={3} dataKey="value">
-                    {ISSUE_DISTRIBUTION_DATA.map((entry, index) => (
+                  <Pie data={issueDistribution} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={3} dataKey="value">
+                    {issueDistribution.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} stroke="#0f131d" strokeWidth={2} />
                     ))}
                   </Pie>
@@ -219,7 +229,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               </ResponsiveContainer>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-3 text-[11px] font-mono text-[#bcc8cf] w-full">
-              {ISSUE_DISTRIBUTION_DATA.map((item) => (
+              {issueDistribution.map((item) => (
                 <div key={item.name} className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="truncate">{item.name}</span>
@@ -241,7 +251,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <div className="p-4 flex-1 flex flex-col justify-between min-h-[220px]">
             <div className="w-full h-40">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={CALIBRATION_CURVE_DATA} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <LineChart data={calibrationCurve} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                   <XAxis dataKey="confidence" hide />
                   <YAxis domain={[0, 100]} hide />
                   <Tooltip
@@ -267,7 +277,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <span className="text-[10px] font-mono text-[#869399]">Deterministic + AI consensus</span>
           </div>
           <div className="p-4 flex-1 flex flex-col justify-center gap-4 min-h-[220px]">
-            {AGREEMENT_PROGRESS_DATA.map((item) => (
+            {agreementProgress.map((item, index) => (
               <div key={item.label}>
                 <div className="flex justify-between font-mono text-xs text-[#bcc8cf] mb-1.5">
                   <span>{item.label}</span>
@@ -275,7 +285,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 </div>
                 <div className="w-full bg-[#313540] h-2 rounded-full overflow-hidden">
                   <div
-                    className={`${item.colorClass} h-full rounded-full transition-all duration-700`}
+                    className={`${index === 0 ? 'bg-[#4edea3]' : 'bg-[#ffbc69]'} h-full rounded-full transition-all duration-700`}
                     style={{ width: `${item.percentage}%` }}
                   />
                 </div>

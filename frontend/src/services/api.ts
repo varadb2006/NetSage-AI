@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 const client = axios.create({
   baseURL: BASE_URL,
@@ -28,12 +28,19 @@ export interface LabCaseSummary {
   title: string;
   device: string;
   symptoms: string;
+  cli_context?: string;
 }
 
 export interface StartCaseResponse {
   session_id: string;
   case_id: string;
   message: string;
+}
+
+export interface CustomCaseRequest {
+  device: string;
+  symptom: string;
+  cli_logs: string;
 }
 
 export interface DiagnoseRequest {
@@ -125,6 +132,15 @@ export async function fetchCases(): Promise<LabCaseSummary[]> {
 export async function startCase(caseId: string): Promise<StartCaseResponse> {
   try {
     const { data } = await client.post<StartCaseResponse>('/case/start', { case_id: caseId });
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}
+
+export async function startCustomCase(payload: CustomCaseRequest): Promise<StartCaseResponse> {
+  try {
+    const { data } = await client.post<StartCaseResponse>('/case/custom/start', payload);
     return data;
   } catch (err) {
     throw normalizeError(err);

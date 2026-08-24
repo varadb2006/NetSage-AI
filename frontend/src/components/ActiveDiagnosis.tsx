@@ -22,6 +22,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { LabCase, ConfidenceState, FailureReason } from '../types';
+import type { DiagnosticTurn } from '../services/api';
 
 /**
  * LegacyLabCase — extends the slim LabCase with mock-era fields.
@@ -47,7 +48,10 @@ interface ActiveDiagnosisProps {
   activeCase: LegacyLabCase;
   onSelectCase: (c: LegacyLabCase) => void;
   onAcceptFix: (caseItem: LegacyLabCase, finalScript: string, rationale?: string) => void;
+  onEditFix: (caseItem: LegacyLabCase, finalScript: string, rationale?: string) => void;
   onRejectFix: (caseItem: LegacyLabCase, reason: FailureReason, comment: string) => void;
+  onRunDiagnosis: (symptom: string, cliLogs: string) => Promise<DiagnosticTurn | null>;
+  onRunCustomDiagnosis: (device: string, symptom: string, cliLogs: string) => Promise<DiagnosticTurn | null>;
   onAddToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, message?: string) => void;
 }
 
@@ -56,7 +60,10 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
   activeCase,
   onSelectCase,
   onAcceptFix,
+  onEditFix,
   onRejectFix,
+  onRunDiagnosis,
+  onRunCustomDiagnosis,
   onAddToast
 }) => {
   // Local state for symptoms, terminal, engine run state, and human override editor
@@ -101,7 +108,7 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
     setIsEditingOverride(false);
   }, [activeCase]);
 
-  const handleRunDiagnosticEngine = () => {
+  const handleRunDiagnosticEngine = async () => {
     if (inputMode === 'new' && !newDevice.trim()) {
       onAddToast('error', 'Device Required', 'Enter a device name before running diagnosis.');
       return;
@@ -111,18 +118,16 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
       return;
     }
     setIsDiagnosing(true);
-    setDiagnosticStep('Streaming NetFlow & Syslog telemetry...');
-    const step1 = setTimeout(() => setDiagnosticStep('Evaluating deterministic IOS heuristics...'), 500);
-    const step2 = setTimeout(() => setDiagnosticStep('Localizing OSI fault & calculating confidence...'), 1100);
-    const step3 = setTimeout(() => setDiagnosticStep('Synthesizing idempotent CLI mitigation patch...'), 1600);
-    const finish = setTimeout(() => {
-      setIsDiagnosing(false);
+    setDiagnosticStep('Evaluating deterministic IOS heuristics...');
+    const result = inputMode === 'new'
+      ? await onRunCustomDiagnosis(newDevice, newSymptoms, newCliLogs)
+      : await onRunDiagnosis(symptoms, terminalHistory);
+    setIsDiagnosing(false);
+    setDiagnosticStep('');
+    if (result) {
       setHasRunDiagnosis(true);
-      setDiagnosticStep('');
-      const device = inputMode === 'new' ? newDevice : activeCase.targetDevice;
-      onAddToast('success', 'Diagnostic Engine Completed', `Evaluated ${device} against 140+ Cisco IOS heuristics.`);
-    }, 2000);
-    return () => { clearTimeout(step1); clearTimeout(step2); clearTimeout(step3); clearTimeout(finish); };
+      onAddToast('success', 'Diagnostic Engine Completed', `Confidence: ${Math.round(result.confidence * 100)}%.`);
+    }
   };
 
   // Run a terminal quick command
@@ -144,16 +149,22 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
   };
 
   // Submit next suggested action command (State A -> State B progression)
-  const handleSubmitSuggestedAction = () => {
+  const handleSubmitSuggestedAction = async () => {
     const cmd = suggestedCommand.trim();
-    handleQuickCommand(cmd);
-    // Transition to High Confidence once evidence is gathered
-    setConfidenceState('high');
-    onAddToast(
-      'success',
-      'Telemetry Refreshed',
-      `Gathered evidence for '${cmd}'. Diagnostic confidence escalated to HIGH (98%).`
+    if (!cmd) return;
+    const matched = activeCase.quickCommands.find(
+      (quickCommand) => quickCommand.command.toLowerCase() === cmd.toLowerCase()
     );
+    const output = matched ? matched.output : `% Command '${cmd}' executed on ${activeCase.targetDevice}.\nNo anomalies detected.`;
+    const nextHistory = `${terminalHistory.trim()}\n${activeCase.targetDevice}# ${cmd}\n${output}\n\n${activeCase.targetDevice}# `;
+    setTerminalHistory(nextHistory);
+    setIsDiagnosing(true);
+    const result = await onRunDiagnosis(symptoms, nextHistory);
+    setIsDiagnosing(false);
+    if (result) {
+      setConfidenceState(result.confidence_state);
+      onAddToast('success', 'Telemetry Refreshed', `New diagnostic turn completed at ${Math.round(result.confidence * 100)}% confidence.`);
+    }
   };
 
   // Copy Fix Script
@@ -170,8 +181,13 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
     const finalScript = useAiScript
       ? activeCase.finalScript.ai.join('\n')
       : humanOverrideText;
-    onAcceptFix(activeCase, finalScript, 'Approved by Network Engineer review.');
-    onAddToast('success', 'Diagnosis Accepted!', `Fix staged for ${activeCase.targetDevice}. Logged to Human Review Audit.`);
+    if (isEditingOverride) {
+      onEditFix(activeCase, finalScript, 'Edited and approved by Network Engineer review.');
+      onAddToast('success', 'Edited Fix Approved!', `Updated fix staged for ${activeCase.targetDevice}.`);
+    } else {
+      onAcceptFix(activeCase, finalScript, 'Approved by Network Engineer review.');
+      onAddToast('success', 'Diagnosis Accepted!', `Fix staged for ${activeCase.targetDevice}. Logged to Human Review Audit.`);
+    }
   };
 
   // Human Review: Edit

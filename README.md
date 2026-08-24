@@ -34,12 +34,9 @@ npm run dev              # Runs on http://localhost:3000
 ```
 
 ### 2. Backend Setup
-Navigate to the backend folder, configure environments, and install dependencies:
+Navigate to the backend folder and install dependencies:
 ```bash
 cd ../backend
-
-# Copy the env template configuration file
-cp .env.example .env     # Update GEMINI_API_KEY inside the new .env file
 
 # Create and activate virtual environment
 python -m venv venv
@@ -49,6 +46,13 @@ source venv/bin/activate  # On macOS/Linux
 # Install requirements
 pip install -r requirements.txt
 ```
+
+The included backend runs in offline mode by default. It loads `../data/cases.csv`,
+uses deterministic diagnosis rules, and keeps sessions, reviews, and metrics in memory.
+Gemini, PostgreSQL, and Docker are not required for startup. To enable Gemini,
+copy `backend/.env.example` to `backend/.env`, set `GEMINI_API_KEY`, and restart Uvicorn.
+The diagnosis prompt sends only the selected case context and the latest 6,000 characters
+of CLI output, with a 600-token response cap.
 
 ### 3. Running the Dev Servers
 Once configured, you can start the backend service:
@@ -69,3 +73,16 @@ The system implements a dual-processing pipeline:
 3. **Agreement Engine** — compares rule flags against LLM output and sets `agreement_status`.
 4. **Confidence Threshold** — `confidence < 0.75` triggers a multi-turn loop (user runs `next_command` and resubmits CLI output); `confidence >= 0.75` generates `fix_steps` for HITL review.
 5. **HITL Review** — Accept / Edit / Reject with full audit logging to PostgreSQL.
+
+### Offline API
+
+The implemented local API exposes:
+
+- `GET /health`
+- `GET /cases`
+- `POST /case/start`
+- `POST /case/{case_id}/diagnose`
+- `POST /case/{case_id}/review`
+- `GET /dashboard/metrics`
+
+Interactive API documentation is available at `http://localhost:8000/docs` after startup.
