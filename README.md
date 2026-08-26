@@ -9,7 +9,6 @@ AI-assisted troubleshooting assistant for Cisco Packet Tracer labs with a strict
 | Frontend | React 19 + Vite + Tailwind CSS v4 (TypeScript) |
 | Backend | Python 3.11 + FastAPI + Uvicorn |
 | AI Engine | Google Gemini (`gemini-2.5-flash`) via `google-generativeai` |
-| Database | PostgreSQL 16 (Docker) |
 
 ## Project Structure
 
@@ -19,7 +18,6 @@ netsageAI/
 ├── backend/           FastAPI backend
 ├── data/
 │   └── cases.csv      Lab case definitions (source of truth)
-├── docker-compose.yml Orchestrates backend + PostgreSQL
 └── README.md
 ```
 
@@ -49,8 +47,7 @@ pip install -r requirements.txt
 
 The included backend runs in offline mode by default. It loads `../data/cases.csv`,
 uses deterministic diagnosis rules, and keeps sessions, reviews, and metrics in memory.
-Gemini, PostgreSQL, and Docker are not required for startup. To enable Gemini,
-copy `backend/.env.example` to `backend/.env`, set `GEMINI_API_KEY`, and restart Uvicorn.
+Gemini is not required for startup. To enable Gemini, copy `backend/.env.example` to `backend/.env`, set `GEMINI_API_KEY`, and restart Uvicorn.
 The diagnosis prompt sends only the selected case context and the latest 6,000 characters
 of CLI output, with a 600-token response cap.
 
@@ -58,10 +55,6 @@ of CLI output, with a 600-token response cap.
 Once configured, you can start the backend service:
 ```bash
 uvicorn main:app --reload --port 8000
-```
-For local docker orchestration (containing Postgres database setup):
-```bash
-docker compose up --build
 ```
 
 ## Architecture
@@ -72,7 +65,7 @@ The system implements a dual-processing pipeline:
 2. **LLM Inference** — Gemini `gemini-2.5-flash` with structured JSON output enforcing the `DiagnosticTurn` schema.
 3. **Agreement Engine** — compares rule flags against LLM output and sets `agreement_status`.
 4. **Confidence Threshold** — `confidence < 0.75` triggers a multi-turn loop (user runs `next_command` and resubmits CLI output); `confidence >= 0.75` generates `fix_steps` for HITL review.
-5. **HITL Review** — Accept / Edit / Reject with full audit logging to PostgreSQL.
+5. **HITL Review** — Accept / Edit / Reject with full audit logging to in-memory state.
 
 ### Offline API
 

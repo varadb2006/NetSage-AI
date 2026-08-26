@@ -3,10 +3,12 @@ from __future__ import annotations
 import csv
 import asyncio
 import re
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+import sqlite3
 
 from models import (
     DashboardMetrics,
@@ -15,6 +17,7 @@ from models import (
     LabCaseSummary,
     ReviewLogEntry,
     ReviewRequest,
+    ReviewResponse,
 )
 from gemini_service import GeminiAnalyzer
 
@@ -63,12 +66,133 @@ class LabCase:
 
 class OfflineBackend:
     def __init__(self, csv_path: Path) -> None:
+        self.csv_path = csv_path
         self.cases = self._load_cases(csv_path)
         self.sessions: dict[str, str] = {}
         self.diagnoses: dict[str, list[DiagnosticTurn]] = {}
         self.review_logs: list[ReviewLogEntry] = []
         self.failure_logs: list[FailureLogEntry] = []
         self.gemini = GeminiAnalyzer()
+        self.db_path = csv_path.parent / "netsage.db"
+        self._init_sqlite_db()
+        self._load_persisted_state()
+        
+        # Clean up obsolete persisted_state.json if it exists
+        old_json = csv_path.parent / "persisted_state.json"
+        if old_json.exists():
+            try:
+                old_json.unlink()
+            except Exception:
+                pass
+
+    def _init_sqlite_db(self) -> None:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS review_logs (
+                        id TEXT PRIMARY KEY,
+                        case_id TEXT,
+                        title TEXT,
+                        device TEXT,
+                        outcome TEXT,
+                        ai_suggested_fix TEXT,
+                        final_fix_applied TEXT,
+                        human_rationale TEXT,
+                        engineer TEXT,
+                        timestamp TEXT,
+                        time_to_resolve TEXT
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS failure_logs (
+                        id TEXT PRIMARY KEY,
+                        case_id TEXT,
+                        case_title TEXT,
+                        initial_ai_output TEXT,
+                        human_correction TEXT,
+                        failure_reason TEXT,
+                        timestamp TEXT,
+                        device TEXT,
+                        engineer TEXT
+                    )
+                """)
+                conn.commit()
+        except Exception as e:
+            print(f"Failed to initialize SQLite database: {e}")
+
+    def _load_persisted_state(self) -> None:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT * FROM review_logs")
+                self.review_logs = [
+                    ReviewLogEntry(
+                        id=row["id"],
+                        case_id=row["case_id"],
+                        title=row["title"],
+                        device=row["device"],
+                        outcome=row["outcome"],
+                        ai_suggested_fix=row["ai_suggested_fix"],
+                        final_fix_applied=row["final_fix_applied"],
+                        human_rationale=row["human_rationale"],
+                        engineer=row["engineer"],
+                        timestamp=row["timestamp"],
+                        time_to_resolve=row["time_to_resolve"]
+                    )
+                    for row in cursor.fetchall()
+                ]
+                
+                cursor.execute("SELECT * FROM failure_logs")
+                self.failure_logs = [
+                    FailureLogEntry(
+                        id=row["id"],
+                        case_id=row["case_id"],
+                        case_title=row["case_title"],
+                        initial_ai_output=row["initial_ai_output"],
+                        human_correction=row["human_correction"],
+                        failure_reason=row["failure_reason"],
+                        timestamp=row["timestamp"],
+                        device=row["device"],
+                        engineer=row["engineer"]
+                    )
+                    for row in cursor.fetchall()
+                ]
+        except Exception as e:
+            print(f"Failed to load persisted state from SQLite: {e}")
+
+    def _save_persisted_state(self) -> None:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM review_logs")
+                for log in self.review_logs:
+                    cursor.execute("""
+                        INSERT INTO review_logs (
+                            id, case_id, title, device, outcome, ai_suggested_fix,
+                            final_fix_applied, human_rationale, engineer, timestamp, time_to_resolve
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        log.id, log.case_id, log.title, log.device, log.outcome, log.ai_suggested_fix,
+                        log.final_fix_applied, log.human_rationale, log.engineer, log.timestamp, log.time_to_resolve
+                    ))
+                
+                cursor.execute("DELETE FROM failure_logs")
+                for log in self.failure_logs:
+                    cursor.execute("""
+                        INSERT INTO failure_logs (
+                            id, case_id, case_title, initial_ai_output, human_correction,
+                            failure_reason, timestamp, device, engineer
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        log.id, log.case_id, log.case_title, log.initial_ai_output, log.human_correction,
+                        log.failure_reason, log.timestamp, log.device, log.engineer
+                    ))
+                conn.commit()
+        except Exception as e:
+            print(f"Failed to save persisted state to SQLite: {e}")
 
     @staticmethod
     def _load_cases(csv_path: Path) -> dict[str, LabCase]:
@@ -113,8 +237,8 @@ class OfflineBackend:
             symptom=symptom,
             topology_note=device,
             show_outputs=cli_logs,
-            expected_fault="Insufficient evidence for a confirmed diagnosis.",
-            correct_fix="",
+            expected_fault="Insufficient evidence for a confirmed offline diagnosis.",
+            correct_fix="! Offline mode: please set a valid GEMINI_API_KEY in the backend to analyze custom inputs.",
         )
         self.cases[case_id] = case
         session_id = f"ses_{uuid4().hex}"
@@ -183,15 +307,24 @@ class OfflineBackend:
             agreement_status = "agree" if matched_evidence else "rule_only"
             evidence = evidence_for[0] if evidence_for else "Gemini requested more CLI evidence."
         else:
-            confidence = 0.96 if matched_evidence else 0.62
+            is_custom = case.concept_tag == "Custom"
+            confidence = 0.0 if is_custom else (0.96 if matched_evidence else 0.62)
             root_cause = case.expected_fault
             osi_layer = case.osi_layer
-            evidence_for = [case.show_outputs] if matched_evidence else []
-            evidence_against = [] if matched_evidence else ["Required Cisco CLI evidence has not been submitted yet."]
-            next_command = "show running-config" if not matched_evidence else None
-            fix_steps = case.correct_fix.splitlines() if matched_evidence else []
-            agreement_status = "agree" if matched_evidence else "rule_only"
-            evidence = case.show_outputs if matched_evidence else "The symptom is consistent with this case, but CLI output is still needed."
+            evidence_for = [case.show_outputs] if (matched_evidence and not is_custom) else []
+            evidence_against = (
+                ["Offline fallback cannot analyze custom inputs. A valid GEMINI_API_KEY is required in backend/.env."]
+                if is_custom
+                else ([] if matched_evidence else ["Required Cisco CLI evidence has not been submitted yet."])
+            )
+            next_command = "show running-config" if (not matched_evidence or is_custom) else None
+            fix_steps = ([] if is_custom else (case.correct_fix.splitlines() if matched_evidence else []))
+            agreement_status = "rule_only"
+            evidence = (
+                "Custom diagnostics are unavailable offline. Please set a valid GEMINI_API_KEY."
+                if is_custom
+                else (case.show_outputs if matched_evidence else "The symptom is consistent with this case, but CLI output is still needed.")
+            )
         turn = DiagnosticTurn(
             turn=turn_number,
             root_cause=root_cause,
@@ -253,7 +386,8 @@ class OfflineBackend:
                     engineer="Network Engineer",
                 ),
             )
-        return {"status": outcome, "review_id": review_id, "message": f"Review {outcome.lower()} and recorded."}
+        self._save_persisted_state()
+        return ReviewResponse(status=outcome, review_id=review_id, message=f"Review {outcome.lower()} and recorded.")
 
     def metrics(self) -> DashboardMetrics:
         total_diagnoses = sum(len(turns) for turns in self.diagnoses.values())
@@ -268,7 +402,7 @@ class OfflineBackend:
             distribution[concept] = distribution.get(concept, 0) + 1
         return DashboardMetrics(
             total_cases=total_diagnoses,
-            agreement_rate=round(high_confidence / total_diagnoses, 3) if total_diagnoses else 0.0,
+            agreement_rate=round(accepted / len(self.review_logs), 3) if self.review_logs else 0.0,
             avg_turns_to_resolution=round(
                 sum(len(turns) for turns in self.diagnoses.values()) / len(self.diagnoses), 2
             ) if self.diagnoses else 0.0,

@@ -4,9 +4,10 @@ import { TabType } from '../types';
 interface TopNavBarProps {
   activeTab: TabType;
   onSelectTab: (tab: TabType) => void;
+  isSystemOffline?: boolean;
 }
 
-export const TopNavBar: React.FC<TopNavBarProps> = ({ activeTab, onSelectTab }) => {
+export const TopNavBar: React.FC<TopNavBarProps> = ({ activeTab, onSelectTab, isSystemOffline = true }) => {
   const tabs: { id: TabType; label: string }[] = [
     { id: 'analytics', label: 'Dashboard' },
     { id: 'diagnosis', label: 'Diagnosis' },
@@ -31,8 +32,8 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({ activeTab, onSelectTab }) 
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === tab.id
-                  ? 'bg-[#68d6ff]/10 text-[#68d6ff] font-semibold'
-                  : 'text-[#869399] hover:text-[#dfe2f1] hover:bg-white/5'
+                ? 'bg-[#68d6ff]/10 text-[#68d6ff] font-semibold'
+                : 'text-[#869399] hover:text-[#dfe2f1] hover:bg-white/5'
                 }`}
             >
               {tab.label}
@@ -42,8 +43,17 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({ activeTab, onSelectTab }) 
       </div>
 
       <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#869399]">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#4edea3] animate-pulse"></span>
-        <span>AI Engine Online</span>
+        {isSystemOffline ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#f19b03] animate-pulse shadow-[0_0_8px_#f19b03]"></span>
+            <span>AI Engine Offline (Rule Fallback)</span>
+          </>
+        ) : (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#4edea3] animate-pulse shadow-[0_0_8px_#4edea3]"></span>
+            <span>AI Engine Online</span>
+          </>
+        )}
       </div>
     </nav>
   );

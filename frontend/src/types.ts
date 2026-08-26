@@ -140,3 +140,19 @@ export interface ToastMessage {
   message?: string;
   duration?: number;
 }
+
+export interface LegacyLabCase extends LabCase {
+  sessionId: string;
+  targetDevice: string;
+  defaultConfidence: ConfidenceState;
+  terminalInitial: string;
+  quickCommands: { command: string; output: string }[];
+  nextSuggestedAction: { command: string; rationale: string; expectedOutcome: string };
+  aiSuggestedFix: { rootCause: string; fixScript: string };
+  actualKnownFix: { title: string; steps: string[]; script: string };
+  defaultHumanOverride: string;
+  finalScript: { ai: string[]; override: string[] };
+  osiFault: { layer: number; name: string; confidence: number };
+  deterministicAgreement: { status: string; rule: string };
+  isRuleOnly?: boolean;
+}

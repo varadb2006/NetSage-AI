@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   Terminal as TerminalIcon,
@@ -41,6 +41,7 @@ interface LegacyLabCase extends LabCase {
   finalScript: { ai: string[]; override: string[] };
   osiFault: { layer: number; name: string; confidence: number };
   deterministicAgreement: { status: string; rule: string };
+  isRuleOnly?: boolean;
 }
 
 interface ActiveDiagnosisProps {
@@ -96,16 +97,24 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
   const [newSymptoms, setNewSymptoms] = useState('');
   const [newCliLogs, setNewCliLogs] = useState('');
 
+  const lastCaseIdRef = useRef(activeCase.id);
+
   // Sync state when active case changes
   useEffect(() => {
-    setSymptoms(activeCase.symptoms);
-    setTerminalHistory(activeCase.terminalInitial);
-    setSuggestedCommand(activeCase.nextSuggestedAction.command);
-    setHumanOverrideText(activeCase.defaultHumanOverride);
+    if (lastCaseIdRef.current !== activeCase.id) {
+      lastCaseIdRef.current = activeCase.id;
+      setSymptoms(activeCase.symptoms);
+      setTerminalHistory(activeCase.terminalInitial);
+      setSuggestedCommand(activeCase.nextSuggestedAction.command);
+      setHumanOverrideText(activeCase.defaultHumanOverride);
+      setUseAiScript(false);
+      setIsEditingOverride(false);
+    } else {
+      setSuggestedCommand(activeCase.nextSuggestedAction.command);
+      setHumanOverrideText(activeCase.defaultHumanOverride);
+    }
     setConfidenceState(activeCase.defaultConfidence);
     setHasRunDiagnosis(true);
-    setUseAiScript(false);
-    setIsEditingOverride(false);
   }, [activeCase]);
 
   const handleRunDiagnosticEngine = async () => {
@@ -477,45 +486,34 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
 
             {/* OSI Layers Visualizer */}
             <div className="flex flex-col gap-1 z-10 font-mono text-xs">
-              <div className="flex justify-between items-center px-2 py-0.5 rounded bg-[#0f131d]/60 text-[#869399]">
-                <span className="w-4 text-[#869399]">7</span> <span>Application</span>
-              </div>
-              <div className={`flex justify-between items-center px-2 py-0.5 rounded ${
-                activeCase.osiFault.layer === 4
-                  ? 'bg-[#f19b03]/20 border border-[#f19b03] text-[#ffddb8] font-bold shadow-[0_0_10px_rgba(241,155,3,0.25)]'
-                  : 'bg-[#0f131d]/60 text-[#869399]'
-              }`}>
-                <span className="w-4">4</span> <span>Transport</span>
-                {activeCase.osiFault.layer === 4 && (
-                  <span className="bg-[#f19b03] text-[#472a00] px-1.5 py-0.2 rounded text-[10px] font-bold">
-                    {activeCase.osiFault.confidence}%
-                  </span>
-                )}
-              </div>
-              <div className={`flex justify-between items-center px-2 py-0.5 rounded ${
-                activeCase.osiFault.layer === 3
-                  ? 'bg-[#f19b03]/20 border border-[#f19b03] text-[#ffddb8] font-bold shadow-[0_0_10px_rgba(241,155,3,0.25)]'
-                  : 'bg-[#0f131d]/60 text-[#869399]'
-              }`}>
-                <span className="w-4">3</span> <span>Network</span>
-                {activeCase.osiFault.layer === 3 && (
-                  <span className="bg-[#f19b03] text-[#472a00] px-1.5 py-0.2 rounded text-[10px] font-bold">
-                    {activeCase.osiFault.confidence}%
-                  </span>
-                )}
-              </div>
-              <div className={`flex justify-between items-center px-2 py-0.5 rounded ${
-                activeCase.osiFault.layer === 2
-                  ? 'bg-[#f19b03]/20 border border-[#f19b03] text-[#ffddb8] font-bold shadow-[0_0_10px_rgba(241,155,3,0.25)]'
-                  : 'bg-[#0f131d]/60 text-[#869399]'
-              }`}>
-                <span className="w-4">2</span> <span>Data Link</span>
-                {activeCase.osiFault.layer === 2 && (
-                  <span className="bg-[#f19b03] text-[#472a00] px-1.5 py-0.2 rounded text-[10px] font-bold">
-                    {activeCase.osiFault.confidence}%
-                  </span>
-                )}
-              </div>
+              {[
+                { layer: 7, name: 'Application' },
+                { layer: 6, name: 'Presentation' },
+                { layer: 5, name: 'Session' },
+                { layer: 4, name: 'Transport' },
+                { layer: 3, name: 'Network' },
+                { layer: 2, name: 'Data Link' },
+                { layer: 1, name: 'Physical' }
+              ].map((item) => {
+                const isActive = activeCase.osiFault.layer === item.layer;
+                return (
+                  <div key={item.layer} className={`flex justify-between items-center px-2 py-0.5 rounded ${
+                    isActive
+                      ? 'bg-[#f19b03]/20 border border-[#f19b03] text-[#ffddb8] font-bold shadow-[0_0_10px_rgba(241,155,3,0.25)]'
+                      : 'bg-[#0f131d]/60 text-[#869399]'
+                  }`}>
+                    <div className="flex items-center gap-2 flex-1 text-left">
+                      <span className="w-3 text-[#869399]">{item.layer}</span>
+                      <span>{item.name}</span>
+                    </div>
+                    {isActive && (
+                      <span className="bg-[#f19b03] text-[#472a00] px-1.5 py-0.5 rounded text-[10px] font-bold">
+                        {activeCase.osiFault.confidence}%
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -623,29 +621,53 @@ export const ActiveDiagnosis: React.FC<ActiveDiagnosisProps> = ({
             </div>
           </div>
 
-          {/* 3-Column Comparison Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 min-h-[160px]">
-            {/* 1. AI Suggested Fix */}
+          {/* 3-Column Comparison Grid (or 2-Column for custom cases) */}
+          <div className={`grid grid-cols-1 ${activeCase.id.startsWith('custom_') ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-3 flex-1 min-h-[160px]`}>
+            {/* 1. AI Suggested Fix / Deterministic Rule Fix */}
             <div className="flex flex-col border border-[#3d494e]/30 rounded-lg bg-[#0f131d]/60 overflow-hidden">
               <div className="px-3 py-1.5 border-b border-[#3d494e]/30 bg-[#262a35] text-[11px] font-mono font-bold text-[#bcc8cf] flex items-center gap-1.5">
-                <Bot className="w-3.5 h-3.5 text-[#68d6ff]" />
-                AI Suggested Fix
+                {activeCase.isRuleOnly ? (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#ffbc69]" />
+                    Deterministic Rule Fix
+                  </>
+                ) : (
+                  <>
+                    <Bot className="w-3.5 h-3.5 text-[#68d6ff]" />
+                    AI Suggested Fix
+                  </>
+                )}
               </div>
-              <div className="p-3 font-mono text-xs text-[#bcc8cf] overflow-y-auto whitespace-pre-wrap leading-relaxed flex-1">
-                {activeCase.aiSuggestedFix.rootCause}
+              <div className="p-3 font-mono text-xs text-[#bcc8cf] overflow-y-auto leading-relaxed flex-1 flex flex-col gap-2">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-[#869399] tracking-wider mb-0.5">
+                    {activeCase.isRuleOnly ? 'Rule-Based Diagnosis:' : 'Root Cause:'}
+                  </div>
+                  <div className="text-xs text-[#dfe2f1] font-sans leading-relaxed mb-3">{activeCase.aiSuggestedFix.rootCause}</div>
+                </div>
+                <div className="mt-auto">
+                  <div className="text-[10px] uppercase font-bold text-[#68d6ff] tracking-wider mb-1">
+                    {activeCase.isRuleOnly ? 'Rule-Based CLI Script:' : 'Cisco CLI Script:'}
+                  </div>
+                  <pre className="p-2 rounded bg-black/40 text-[#4edea3] text-[11px] border border-[#3d494e]/20 whitespace-pre-wrap font-mono">
+                    {activeCase.aiSuggestedFix.fixScript || '(No script generated)'}
+                  </pre>
+                </div>
               </div>
             </div>
 
-            {/* 2. Actual Known Fix (Reference) */}
-            <div className="flex flex-col border border-[#f19b03]/30 rounded-lg bg-[#f19b03]/5 overflow-hidden">
-              <div className="px-3 py-1.5 border-b border-[#f19b03]/20 bg-[#f19b03]/10 text-[11px] font-mono font-bold text-[#ffddb8] flex items-center gap-1.5">
-                <BookOpen className="w-3.5 h-3.5 text-[#ffbc69]" />
-                Actual Known Fix
+            {/* 2. Actual Known Fix (Reference) - Hidden for Custom inputs */}
+            {!activeCase.id.startsWith('custom_') && (
+              <div className="flex flex-col border border-[#f19b03]/30 rounded-lg bg-[#f19b03]/5 overflow-hidden">
+                <div className="px-3 py-1.5 border-b border-[#f19b03]/20 bg-[#f19b03]/10 text-[11px] font-mono font-bold text-[#ffddb8] flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-[#ffbc69]" />
+                  Actual Known Fix
+                </div>
+                <div className="p-3 font-mono text-xs text-[#ffddb8]/90 overflow-y-auto whitespace-pre-wrap leading-relaxed flex-1">
+                  {activeCase.actualKnownFix.script}
+                </div>
               </div>
-              <div className="p-3 font-mono text-xs text-[#ffddb8]/90 overflow-y-auto whitespace-pre-wrap leading-relaxed flex-1">
-                {activeCase.actualKnownFix.script}
-              </div>
-            </div>
+            )}
 
             {/* 3. Human Override Editor */}
             <div className="flex flex-col border border-[#68d6ff]/30 rounded-lg bg-[#0f131d] overflow-hidden">

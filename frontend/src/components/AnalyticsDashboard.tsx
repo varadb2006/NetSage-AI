@@ -146,24 +146,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           return (
             <div
               key={kpi.key}
-              className={`glass-panel rounded-xl p-5 flex flex-col justify-between shadow-lg border-l-4 ${kpi.borderColor}`}
+              className={`glass-panel rounded-xl p-5 flex flex-col justify-start shadow-lg border-l-4 ${kpi.borderColor} min-h-[175px]`}
             >
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between w-full mb-2">
                 <span className="text-[11px] font-mono font-bold text-[#869399] uppercase tracking-wider">
                   {kpi.label}
                 </span>
-                <div className="p-1.5 rounded-lg bg-[#0f131d]/60">
+                <div className="p-1.5 rounded-lg bg-[#0f131d]/60 shrink-0">
                   <Icon className={`w-4 h-4 ${kpi.iconColor}`} />
                 </div>
               </div>
-              <div>
-                <span className="text-3xl font-bold text-[#dfe2f1] tracking-tight">{kpiValues[index]}</span>
-                <div className="flex items-center justify-between mt-2">
+              
+              <div className="text-3xl font-sans font-bold text-[#dfe2f1] tracking-tight proportional-nums text-left mt-1">
+                {kpiValues[index]}
+              </div>
+              
+              <div className="flex flex-col items-start w-full text-left mt-auto">
+                <div className="flex items-center justify-between mt-1">
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${kpi.subBg} ${kpi.subColor} font-bold`}>
-                    {kpi.sub}
+                    {index === 0 || index === 2
+                      ? (metrics ? 'Telemetry active' : 'Backend data loading')
+                      : kpi.sub}
                   </span>
                 </div>
-                <p className="text-[10px] text-[#869399] font-mono mt-2 leading-relaxed">{kpi.description}</p>
+                <p className="text-[10px] text-[#869399] font-mono mt-1.5 leading-relaxed">{kpi.description}</p>
               </div>
             </div>
           );

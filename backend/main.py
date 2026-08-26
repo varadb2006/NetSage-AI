@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+
+# Load environment variables at the very top before other imports
+BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(BACKEND_DIR / ".env", override=True)
+
+import time
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from models import (
@@ -21,8 +26,6 @@ from models import (
 from services import OfflineBackend
 
 
-BACKEND_DIR = Path(__file__).resolve().parent
-load_dotenv(BACKEND_DIR / ".env")
 CSV_PATH = BACKEND_DIR / os.getenv("CASES_CSV_PATH", "../data/cases.csv")
 backend = OfflineBackend(CSV_PATH.resolve())
 
@@ -71,8 +74,31 @@ def start_custom_case(request: StartCustomCaseRequest) -> StartCaseResponse:
     return StartCaseResponse(session_id=session_id, case_id=case.case_id, message="Custom case session started.")
 
 
+# Store request timestamps per client IP to enforce rate limiting
+rate_limit_records: dict[str, list[float]] = {}
+
+def check_rate_limit(client_ip: str) -> bool:
+    current_time = time.time()
+    # Retain only timestamps from the last 60 seconds
+    timestamps = rate_limit_records.get(client_ip, [])
+    timestamps = [t for t in timestamps if current_time - t < 60]
+    rate_limit_records[client_ip] = timestamps
+    
+    if len(timestamps) >= 3:
+        return False
+        
+    timestamps.append(current_time)
+    return True
+
+
 @app.post("/case/{case_id}/diagnose", response_model=DiagnosticTurn)
-async def diagnose(case_id: str, request: DiagnoseRequest) -> DiagnosticTurn:
+async def diagnose(case_id: str, request: DiagnoseRequest, req: Request) -> DiagnosticTurn:
+    client_ip = req.client.host if req.client else "unknown"
+    if not check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 3 diagnostic requests per minute allowed to protect Gemini quota."
+        )
     try:
         return await backend.diagnose(case_id, request.session_id, request.symptom, request.cli_logs)
     except ValueError as error:

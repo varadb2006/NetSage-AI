@@ -6,17 +6,19 @@ import { ReviewLogView } from './components/ReviewLogView';
 import { CaseDetailsModal } from './components/CaseDetailsModal';
 import { ToastContainer } from './components/Toast';
 import { useCases } from './hooks/useCases';
-import { fetchMetrics, runDiagnosis, startCustomCase, submitReview, DiagnosticTurn, DashboardMetrics } from './services/api';
+import { fetchMetrics, fetchHealth, runDiagnosis, startCustomCase, submitReview, DiagnosticTurn, DashboardMetrics, LabCaseSummary } from './services/api';
 import { toLegacyCase } from './data/liveCaseAdapter';
 import { TabType, LabCase, FailureLogEntry, ReviewLogEntry, ToastMessage, FailureReason } from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('analytics');
   const { cases, activeCase, sessionId, loading, selectCase } = useCases();
+  const [customCase, setCustomCase] = useState<LabCaseSummary | null>(null);
   const [diagnosis, setDiagnosis] = useState<DiagnosticTurn | null>(null);
   const [failureLogs, setFailureLogs] = useState<FailureLogEntry[]>([]);
   const [reviewLogs, setReviewLogs] = useState<ReviewLogEntry[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [isSystemOffline, setIsSystemOffline] = useState<boolean>(true);
   const [diagnosisCaseId, setDiagnosisCaseId] = useState<string | null>(null);
   const [diagnosisSessionId, setDiagnosisSessionId] = useState<string | null>(null);
   const [inspectedFailureLog, setInspectedFailureLog] = useState<FailureLogEntry | null>(null);
@@ -39,6 +41,12 @@ export default function App() {
   }, [cases, selectCase]);
 
   useEffect(() => {
+    void fetchHealth().then((health) => {
+      setIsSystemOffline(!health.gemini_enabled);
+    }).catch(() => {
+      setIsSystemOffline(true);
+    });
+
     void fetchMetrics().then((metrics) => {
       setMetrics(metrics);
       setFailureLogs(metrics.failure_log.map((entry) => ({ ...entry, failure_reason: entry.failure_reason as FailureReason })));
@@ -49,6 +57,7 @@ export default function App() {
   }, []);
 
   const handleSelectCase = (caseItem: LabCase) => {
+    setCustomCase(null); // Clear custom case state on drop-down select
     const selected = cases.find((item) => item.id === caseItem.id);
     if (!selected) return;
     setDiagnosis(null);
@@ -63,8 +72,8 @@ export default function App() {
     }
     try {
       const result = await runDiagnosis(activeCase.id, { session_id: sessionId, symptom, cli_logs: cliLogs });
-        setDiagnosisCaseId(activeCase.id);
-        setDiagnosisSessionId(sessionId);
+      setDiagnosisCaseId(activeCase.id);
+      setDiagnosisSessionId(sessionId);
       setDiagnosis(result);
       return result;
     } catch (error) {
@@ -77,6 +86,14 @@ export default function App() {
   const handleRunCustomDiagnosis = async (device: string, symptom: string, cliLogs: string) => {
     try {
       const custom = await startCustomCase({ device, symptom, cli_logs: cliLogs });
+      const customSummary: LabCaseSummary = {
+        id: custom.case_id,
+        title: `Custom Case (${device})`,
+        device,
+        symptoms: symptom,
+        cli_context: cliLogs
+      };
+      setCustomCase(customSummary);
       setDiagnosisCaseId(custom.case_id);
       setDiagnosisSessionId(custom.session_id);
       const result = await runDiagnosis(custom.case_id, {
@@ -135,16 +152,20 @@ export default function App() {
     void handleReview(caseItem, 'EDIT', finalScript, rationale);
   };
 
-  if (loading || !activeCase) {
+  const currentActiveCase = customCase || activeCase;
+  const currentSessionId = customCase ? (diagnosisSessionId ?? '') : (sessionId ?? '');
+  const allCases = customCase ? [customCase, ...cases] : cases;
+
+  if (loading || !currentActiveCase) {
     return <div className="min-h-screen bg-[#0f131d] text-[#dfe2f1] flex items-center justify-center font-mono">Loading cases...</div>;
   }
 
-  const liveCases = cases.map((item) => toLegacyCase(item, item.id === activeCase.id ? sessionId ?? '' : '', item.id === activeCase.id ? diagnosis : null));
-  const liveActiveCase = toLegacyCase(activeCase, sessionId ?? '', diagnosis);
+  const liveCases = allCases.map((item) => toLegacyCase(item, item.id === currentActiveCase.id ? currentSessionId : '', item.id === currentActiveCase.id ? diagnosis : null, isSystemOffline));
+  const liveActiveCase = toLegacyCase(currentActiveCase, currentSessionId, diagnosis, isSystemOffline);
 
   return (
     <div className="min-h-screen bg-[#0f131d] text-[#dfe2f1] flex flex-col font-sans overflow-x-hidden">
-      <TopNavBar activeTab={activeTab} onSelectTab={setActiveTab} />
+      <TopNavBar activeTab={activeTab} onSelectTab={setActiveTab} isSystemOffline={isSystemOffline} />
 
       <main className="flex-1 pt-14 px-5 pb-8 md:px-10">
         {activeTab === 'analytics' && (

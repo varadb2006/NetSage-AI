@@ -173,3 +173,12 @@ export async function fetchMetrics(): Promise<DashboardMetrics> {
     throw normalizeError(err);
   }
 }
+
+export async function fetchHealth(): Promise<{ status: string; mode: string; gemini_enabled: boolean; cases_loaded: number }> {
+  try {
+    const { data } = await client.get('/health');
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}

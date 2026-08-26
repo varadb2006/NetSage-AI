@@ -34,3 +34,7 @@ postgres_data/
 
 # Logs
 *.log
+
+# Databases
+*.db
+data/*.db
